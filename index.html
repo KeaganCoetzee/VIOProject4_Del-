@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Town Explorer Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a202c;
+            touch-action: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: block; /* Changed to block for full viewport canvas */
+        }
+        canvas {
+            background-color: #78a840; /* Grass color */
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+        #d-pad {
+            display: none;
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            gap: 15px;
+            z-index: 20;
+        }
+        .d-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.6);
+            border-radius: 15px;
+            color: white;
+            font-weight: bold;
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .d-btn:active {
+            background: rgba(255,255,255,0.6);
+            transform: translateY(2px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        @media (max-width: 768px) {
+            #d-pad { display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px; }
+            #btn-up { grid-column: 2; grid-row: 1; }
+            #btn-left { grid-column: 1; grid-row: 2; }
+            #btn-down { grid-column: 2; grid-row: 2; }
+            #btn-right { grid-column: 3; grid-row: 2; }
+        }
+        /* Full-screen house interiors */
+        #interior {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: #000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+        #interior.open { opacity: 1; pointer-events: auto; }
+        #interior img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            display: block;
+        }
+        @media (max-aspect-ratio: 1/1) {
+            #interior img { object-fit: contain; object-position: center; }
+        }
+        #interior-exit {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            padding: 10px 18px;
+            background: rgba(0,0,0,0.65);
+            color: #fff;
+            border: 2px solid rgba(255,255,255,0.8);
+            border-radius: 12px;
+            font: bold 18px monospace;
+            cursor: pointer;
+        }
+        #interior-exit:hover { background: rgba(255,255,255,0.25); }
+
+        /* ---- Witches Brewery potions ---- */
+        #potions { display: none; }
+        #potions.active { display: block; }
+        .potion {
+            position: absolute;
+            cursor: pointer;
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            transition: filter 0.15s, transform 0.15s;
+        }
+        #potion-red   { background-image: url('potion_red.png'); }
+        #potion-green { background-image: url('potion_green.png'); }
+        #potion-blue  { background-image: url('potion_blue.png'); }
+        .potion:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 18px rgba(255,255,255,0.7));
+            transform: translateY(-6px) scale(1.04);
+        }
+        /* ---- Family home: click a person to talk to them ---- */
+        #family { display: none; }
+        #family.active { display: block; }
+        .fam {
+            position: absolute;
+            cursor: pointer;
+            transition: filter 0.15s, transform 0.15s;
+        }
+        .fam:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 16px rgba(255,255,255,0.6));
+            transform: translateY(-6px);
+        }
+        #family-hint {
+            display: none; position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,20,20,0.85); color: #fff; padding: 6px 14px; border-radius: 8px;
+            font-size: 14px; pointer-events: none; z-index: 5;
+        }
+        #family-hint.active { display: block; }
+        #talk {
+            position: absolute; inset: 0; z-index: 20; display: none;
+            background: rgba(0,0,0,0.28);
+            -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+            cursor: pointer;
+        }
+        #talk.show { display: block; }
+        #interior #talk-person {
+            position: absolute; bottom: -3vh; left: 4vw; height: 94vh; max-width: 44vw;
+            object-fit: contain; object-position: left bottom;
+            animation: talkIn 0.35s ease-out;
+        }
+        @keyframes talkIn { from { transform: translateY(40px) scale(0.85); opacity: 0; } to { transform: none; opacity: 1; } }
+        #talk-bubble {
+            position: absolute; right: 4vw; top: 50%; transform: translateY(-62%);
+            width: min(42vw, 640px); min-height: 38vh; padding: 28px 32px;
+            background: #fff; color: #111; border: 5px solid #000; border-radius: 44px;
+            font-size: clamp(20px, 2.4vw, 34px); line-height: 1.35; font-weight: 700;
+            animation: bubbleIn 0.4s 0.15s ease-out backwards;
+        }
+        #talk-bubble::before {  /* tail pointing at the person on the left */
+            content: ''; position: absolute; left: -38px; top: 58%;
+            border: 22px solid transparent; border-right: 38px solid #000; border-left: 0;
+        }
+        #talk-bubble::after {
+            content: ''; position: absolute; left: -28px; top: calc(58% + 5px);
+            border: 17px solid transparent; border-right: 32px solid #fff; border-left: 0;
+        }
+        @keyframes bubbleIn { from { transform: translateY(-62%) scale(0.6); opacity: 0; } to { transform: translateY(-62%) scale(1); opacity: 1; } }
+        #talk-close {
+            position: absolute; right: 5vw; bottom: 16px; color: #fff; font-size: 14px;
+            background: rgba(20,20,20,0.7); padding: 5px 12px; border-radius: 8px;
+        }
+        /* ---- Junk N' Stuff: click a product to see its receipt ---- */
+        #shop { display: none; }
+        #shop.active { display: block; }
+        .prod { position: absolute; cursor: pointer; transition: filter 0.15s, transform 0.15s; }
+        .prod:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 16px rgba(255,255,255,0.6));
+            transform: translateY(-5px) scale(1.05);
+        }
+        #shop-hint {
+            display: none; position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,20,20,0.85); color: #fff; padding: 6px 14px; border-radius: 8px;
+            font-size: 14px; pointer-events: none; z-index: 5;
+        }
+        #shop-hint.active { display: block; }
+        #shop-talk {
+            position: absolute; inset: 0; z-index: 20; display: none; cursor: pointer;
+            background: rgba(0,0,0,0.28);
+            -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+        }
+        #shop-talk.show { display: block; }
+        #interior #shop-item {
+            position: absolute; left: 3vw; top: 50%; transform: translateY(-50%);
+            width: 40vw; height: auto; max-height: 70vh; object-fit: contain; object-position: center;
+            filter: drop-shadow(0 14px 18px rgba(0,0,0,0.45));
+            animation: itemIn 0.35s ease-out;
+        }
+        @keyframes itemIn { from { transform: translateY(-50%) scale(0.6); opacity: 0; } to { transform: translateY(-50%) scale(1); opacity: 1; } }
+        #receipt {
+            position: absolute; right: 3vw; top: 50%; transform: translateY(-50%);
+            width: min(44vw, 600px); max-height: 94vh; overflow: hidden;
+            background: #fdfcf3; color: #222; padding: 44px 38px 52px;
+            font-family: 'Courier New', Courier, monospace; font-size: clamp(15px, 1.9vw, 26px); line-height: 1.4;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50%/16px 100%,
+                          conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50%/16px 100%;
+            -webkit-mask-composite: source-in; mask-composite: intersect;
+            animation: receiptIn 0.4s 0.12s ease-out backwards;
+        }
+        @keyframes receiptIn { from { transform: translateY(-50%) translateX(60px) rotate(3deg); opacity: 0; } to { transform: translateY(-50%); opacity: 1; } }
+        #receipt .r-shop { text-align: center; font-weight: 700; font-size: 1.25em; letter-spacing: 1px; }
+        #receipt .r-sub { text-align: center; opacity: 0.7; font-size: 0.85em; }
+        #receipt .r-line { border-top: 2px dashed #444; margin: 12px 0; }
+        #receipt .r-row { display: flex; justify-content: space-between; gap: 12px; font-weight: 700; }
+        #receipt .r-desc { margin-top: 8px; font-size: 0.92em; }
+        #receipt .r-total { font-size: 1.15em; }
+        #receipt .r-foot { text-align: center; font-size: 0.8em; opacity: 0.7; margin-top: 6px; }
+        #shop-close {
+            position: absolute; right: 4vw; bottom: 16px; color: #fff; font-size: 14px;
+            background: rgba(20,20,20,0.7); padding: 5px 12px; border-radius: 8px;
+        }
+        #potion-hint {
+            display: none;
+            position: absolute;
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            border-radius: 10px;
+            font: 16px monospace;
+            pointer-events: none;
+        }
+        #potion-hint.active { display: block; }
+        .bubble {
+            position: absolute;
+            display: none;
+            max-width: 280px;
+            padding: 14px 20px;
+            background: #fff;
+            color: #000;
+            border: 4px solid #000;
+            border-radius: 26px;
+            font: bold 22px "Comic Sans MS", "Chalkboard SE", cursive, sans-serif;
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+        }
+        .bubble.show { display: block; }
+        .bubble::after {               /* tail */
+            content: "";
+            position: absolute;
+            width: 22px; height: 22px;
+            background: #fff;
+            border: 4px solid #000;
+            border-top: none; border-left: none;
+            transform: rotate(45deg);
+        }
+        #bubble-player { right: 28px; bottom: 44px; }
+        #bubble-player::after { right: 34px; bottom: -14px; }           /* tail points down to the corner */
+        #bubble-witch::after { left: 46px; top: -14px; transform: rotate(-135deg); }  /* tail points up at the witch */
+        #bubble-keeper { white-space: nowrap; max-width: none; }
+        #bubble-keeper::after { left: -14px; top: 22px; transform: rotate(135deg); }  /* tail points left at the shopkeeper */
+        #toast {
+            position: absolute;
+            left: 50%; top: 22px;
+            transform: translateX(-50%);
+            padding: 10px 22px;
+            background: rgba(0,0,0,0.75);
+            color: #ffe45c;
+            border: 2px solid #ffe45c;
+            border-radius: 12px;
+            font: bold 22px monospace;
+            display: none;
+            pointer-events: none;
+        }
+        #toast.show { display: block; }
+
+        /* ---- YOU DIED ---- */
+        #death {
+            position: fixed;
+            inset: 0;
+            z-index: 300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, rgba(60,0,0,0.85), rgba(0,0,0,0.97));
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.8s ease;
+        }
+        #death.show { opacity: 1; pointer-events: auto; }
+        #death span {
+            color: #b30000;
+            font: 900 clamp(60px, 16vw, 230px) "Times New Roman", Georgia, serif;
+            letter-spacing: 0.08em;
+            text-shadow: 0 0 40px #600, 0 0 10px #000;
+        }
+
+        /* ---- Wild Charlie encounter (Pokemon style) ---- */
+        #encounter {
+            position: fixed; inset: 0; z-index: 150; display: none;
+            background: #326517; cursor: pointer; overflow: hidden;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            image-rendering: pixelated;
+        }
+        #encounter.open { display: block; }
+        #encounter-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+        #encounter-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 5; }
+        #encounter-flash.blink { animation: encFlash 0.8s steps(1) forwards; }
+        @keyframes encFlash { 0%{opacity:1} 12%{opacity:0} 25%{opacity:1} 37%{opacity:0} 50%{opacity:1} 62%{opacity:0} 75%{opacity:1} 100%{opacity:0} }
+        #charlie {
+            position: absolute; transform: translateX(120vw);
+        }
+        #charlie.in { transform: none; transition: transform 0.7s cubic-bezier(.2,.8,.3,1); }
+        #charlie img { width: 100%; height: 100%; object-fit: contain; display: block; image-rendering: auto; }
+        #charlie.idle img { animation: charlieBob 1.6s ease-in-out infinite; }
+        @keyframes charlieBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.2%); } }
+        #encounter-box {
+            position: absolute; left: 2vw; right: 2vw; bottom: 2.5vh; height: 24vh; z-index: 6;
+            background: #f8f8f8; border: 0.7vh solid #3b4a68; border-radius: 1.6vh;
+            box-shadow: inset 0 0 0 0.6vh #d8dce8, inset 0 0 0 1.1vh #e0a030, 0 0 0 0.5vh #1d2538;
+            padding: 3.2vh 3.4vw; box-sizing: border-box;
+        }
+        #encounter-text {
+            font-size: clamp(12px, 2.1vw, 30px); line-height: 1.7; color: #484848;
+            text-shadow: 0.12em 0.12em 0 #b8b8c0; white-space: pre-wrap;
+        }
+        #encounter-arrow {
+            position: absolute; right: 3vw; bottom: 2.4vh; width: 0; height: 0;
+            border-left: 1.1vw solid transparent; border-right: 1.1vw solid transparent; border-top: 1.6vw solid #c83030;
+            display: none; animation: arrowBlink 0.7s steps(1) infinite;
+        }
+        @keyframes arrowBlink { 0%{opacity:1} 50%{opacity:0} }
+        /* ---- speed boost indicator ---- */
+        #boost-hud {
+            position: absolute;
+            top: 14px; left: 14px;
+            z-index: 15;
+            padding: 8px 14px;
+            background: rgba(0,0,0,0.65);
+            color: #ffe45c;
+            border: 2px solid #ffe45c;
+            border-radius: 10px;
+            font: bold 18px monospace;
+            display: none;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- UI Overlay for Messages -->
+        <div id="ui-overlay" class="absolute top-8 left-1/2 transform -translate-x-1/2 z-10 w-11/12 max-w-lg transition-opacity duration-300 opacity-0 pointer-events-none">
+            <div class="bg-gray-900 border-4 border-gray-200 rounded-lg p-5 shadow-2xl flex items-center justify-center text-center">
+                <p id="message-text" class="text-white font-mono text-xl leading-relaxed"></p>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Full-screen interior shown when you walk into a door -->
+        <div id="interior">
+            <img id="interior-img" alt="House interior">
+            <button id="interior-exit">&larr; Exit (Esc / Enter)</button>
+
+            <!-- Witches Brewery only: the three potions are clickable -->
+            <div id="potions">
+                <div class="potion" id="potion-red"   title="Red potion"></div>
+                <div class="potion" id="potion-green" title="Green potion"></div>
+                <div class="potion" id="potion-blue"  title="Blue potion"></div>
+            </div>
+            <div id="potion-hint">Click a potion to drink it</div>
+            <div id="bubble-player" class="bubble"></div>
+            <div id="bubble-witch" class="bubble"></div>
+            <div id="bubble-keeper" class="bubble"></div>
+            <div id="toast"></div>
+
+            <!-- Family home only: click a person to talk to them -->
+            <div id="family">
+                <img class="fam" id="fam-man"     data-who="man"     src="family_man.png"     alt="Man">
+                <img class="fam" id="fam-girl"    data-who="girl"    src="family_girl.png"    alt="Girl">
+                <img class="fam" id="fam-boy"     data-who="boy"     src="family_boy.png"     alt="Boy">
+                <img class="fam" id="fam-grandma" data-who="grandma" src="family_grandma.png" alt="Grandma">
+            </div>
+            <!-- Junk N' Stuff only: click a product to see its receipt -->
+            <div id="shop">
+                <img class="prod" id="prod-guitar" data-what="guitar" src="junk_guitar.png" alt="Guitar">
+                <img class="prod" id="prod-shoe"   data-what="shoe"   src="junk_shoe.png"   alt="Shoe">
+                <img class="prod" id="prod-books"  data-what="books"  src="junk_books.png"  alt="Books">
+                <img class="prod" id="prod-racket" data-what="racket" src="junk_racket.png" alt="Tennis racket">
+            </div>
+            <div id="shop-hint">Click a product to see its price</div>
+            <div id="shop-talk">
+                <img id="shop-item" alt="">
+                <div id="receipt">
+                    <div class="r-shop">JUNK N' STUFF</div>
+                    <div class="r-sub">Everything must go!</div>
+                    <div class="r-line"></div>
+                    <div class="r-row"><span id="r-name"></span><span id="r-price"></span></div>
+                    <div class="r-desc" id="r-desc"></div>
+                    <div class="r-line"></div>
+                    <div class="r-row r-total"><span>TOTAL</span><span id="r-total"></span></div>
+                    <div class="r-foot">** NO REFUNDS ** THANK YOU **</div>
+                </div>
+                <div id="shop-close">Click anywhere or press Esc to go back</div>
+            </div>
+            <div id="family-hint">Click a family member to talk to them</div>
+            <div id="talk">
+                <img id="talk-person" alt="">
+                <div id="talk-bubble"><span id="talk-text"></span></div>
+                <div id="talk-close">Click anywhere or press Esc to go back</div>
+            </div>
+        </div>
+
+        <div id="death"><span>YOU DIED</span></div>
+
+        <!-- Wild Charlie encounter (shaking bush) -->
+        <div id="encounter">
+            <img id="encounter-bg" src="encounter_bg.png" alt="">
+            <div id="charlie"><img src="charlie.png" alt="Charlie"></div>
+            <div id="encounter-flash"></div>
+            <div id="encounter-box"><div id="encounter-text"></div><div id="encounter-arrow"></div></div>
+        </div>
+        <div id="boost-hud"></div>
+
+        <!-- On-screen controls for Touch Devices -->
+        <div id="d-pad">
+            <div id="btn-up" class="d-btn" data-key="ArrowUp">↑</div>
+            <div id="btn-left" class="d-btn" data-key="ArrowLeft">←</div>
+            <div id="btn-down" class="d-btn" data-key="ArrowDown">↓</div>
+            <div id="btn-right" class="d-btn" data-key="ArrowRight">→</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiOverlay = document.getElementById('ui-overlay');
+        const messageText = document.getElementById('message-text');
+
+        const playerImg = new Image();
+        playerImg.src = 'character.png';
+
+        // Hand-drawn art assets
+        function loadImg(src) { const i = new Image(); i.src = src; return i; }
+        const cottageImg = loadImg('house_cottage.png');
+        const witchImg = loadImg('house_witch.png');
+        const junkImg = loadImg('house_junk.png');
+        const labImg = loadImg('house_lab.png');
+        const fountainImg = loadImg('fountain.png');
+        const lampImg = loadImg('lamp.png');
+        const bushImg = loadImg('bush.png');
+        const tuftImg = loadImg('tuft.png');
+        const flowersImg = loadImg('flowers.png');
+        const benchImg = loadImg('bench.png');
+        const pavementImg = loadImg('pavement_tile.png');
+        let pavementPattern = null;
+        pavementImg.onload = () => { pavementPattern = ctx.createPattern(pavementImg, 'repeat'); };
+
+        // Virtual World Bounds (much larger than the screen)
+        const WORLD_WIDTH = 1850;
+        const WORLD_HEIGHT = 1740;
+
+        // Resize canvas to fill window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const keys = {
+            up: false, left: false, down: false, right: false
+        };
+
+        const player = {
+            x: 1085 - 50,
+            y: 1180, // Spawn safely below the fountain
+            w: 100, // Increased width for the image sprite
+            h: 120, // Increased height for the image sprite
+            speed: 5,
+            isMoving: false, // Track movement for the waddle animation
+            facingLeft: false // Track which way the player is facing
+        };
+
+        const camera = {
+            x: 0,
+            y: 0
+        };
+
+        const forest = { x: 0, y: 0, w: WORLD_WIDTH, h: 250, color: '#2c5e1a' };
+        
+        const fountain = { x: 1085, y: 1000, r: 60, color: '#3498db', outline: '#2980b9' };
+
+        // Spread out 5 houses
+        const houses = [
+            // doorFrac = where the door sits across the sprite (0 = left edge, 1 = right edge)
+            { id: 1, name: "Junk N' Stuff",   x: 485,  y: 1300,  w: 160, h: 120, color: '#8e44ad', roof: '#732d91', img: junkImg,    spriteW: 240, doorFrac: 0.741, interior: 'interior_junk_empty.png' },
+            { id: 2, name: "The Lab",          x: 1525, y: 1300,  w: 160, h: 120, color: '#e67e22', roof: '#d35400', img: labImg,     spriteW: 250, doorFrac: 0.527, interior: 'interior_lab.png' },
+            { id: 3, name: "Family Home",      x: 485,  y: 500, w: 160, h: 120, color: '#f1c40f', roof: '#f39c12', img: cottageImg, spriteW: 190, doorFrac: 0.5,   interior: 'interior_family_empty.png' },
+            { id: 4, name: "Family Home",      x: 1525, y: 500, w: 160, h: 120, color: '#16a085', roof: '#1abc9c', img: cottageImg, spriteW: 190, doorFrac: 0.5,   interior: 'interior_family_empty.png' },
+            { id: 5, name: "Witches Brewery",  x: 185,  y: 900,  w: 160, h: 120, color: '#e84393', roof: '#d63031', img: witchImg,   spriteW: 230, doorFrac: 0.5,   interior: 'interior_witch.png' }
+        ];
+
+        // Solid (collision) area of each house = the base of its sprite
+        houses.forEach(h => {
+            const hw = Math.round(h.spriteW * 0.85);
+            h.hit = { x: h.x + h.w / 2 - hw / 2, y: h.y, w: hw, h: h.h };
+        });
+
+        // Decorations: x = centre, y = ground line (bottom of the sprite), w = drawn width
+        // hitW / hitH = the small solid area at the base that the player can't walk through
+        const props = [
+            // Lamp posts beside the main paths
+            { img: lampImg, x: 1020, y: 560,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 560,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1020, y: 840,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 840,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1020, y: 1330, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 1330, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 785,  y: 612,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1385, y: 612,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 785,  y: 1412, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1385, y: 1412, w: 52, hitW: 18, hitH: 10 },
+            // Benches on the grass facing the paths
+            { img: benchImg, x: 895, y: 800,  w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 1275, y: 800,  w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 925, y: 1250, w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 1245, y: 1250, w: 120, hitW: 96, hitH: 12 }
+        ];
+        props.forEach(pr => {
+            pr.hit = { x: pr.x - pr.hitW / 2, y: pr.y - pr.hitH, w: pr.hitW, h: pr.hitH };
+        });
+
+        // Pathways definitions (x, y, w, h)
+        const pathColor = '#a39b8c'; // Dirt/Cobblestone base color
+        const pathWidth = 80;
+        const paths = [
+            // Main Vertical (from forest edge to bottom of town)
+            { x: 1085 - pathWidth/2, y: 200, w: pathWidth, h: 1400 },
+            // Main Horizontal Top (Connecting House 1 and 2 to center)
+            { x: 565, y: 620, w: 1040, h: pathWidth },
+            // Main Horizontal Bottom (Connecting House 3 and 4 to center)
+            { x: 565, y: 1420, w: 1040, h: pathWidth },
+            // Branch to House 5
+            { x: 265, y: 1020, w: 800, h: pathWidth }
+        ];
+
+
+        // Door Triggers (a small zone right in front of each door)
+        const doors = houses.map(house => ({
+            houseId: house.id,
+            x: house.x + house.w / 2 - house.spriteW / 2 + house.doorFrac * house.spriteW - 25,
+            y: house.y + house.h,
+            w: 50,
+            h: 24
+        }));
+
+        // ---------- Scattered grass decorations (seeded, so the map is the same every time) ----------
+        function mulberry32(a) {
+            return function () {
+                a |= 0; a = a + 0x6D2B79F5 | 0;
+                let t = Math.imul(a ^ a >>> 15, 1 | a);
+                t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+        }
+        const rnd = mulberry32(2024);
+
+        function nearPath(x, y, pad) {
+            return paths.some(p => x > p.x - pad && x < p.x + p.w + pad && y > p.y - pad && y < p.y + p.h + pad);
+        }
+        function blocked(x, y, pathPad, spacing) {
+            if (y < 290) return true;                                        // forest strip
+            if (nearPath(x, y, pathPad)) return true;                        // paths
+            for (const h of houses) {                                        // houses (whole sprite)
+                if (x > h.x - 70 && x < h.x + h.w + 70 && y > h.y - 190 && y < h.y + h.h + 70) return true;
+            }
+            if (Math.hypot(x - fountain.x, y - fountain.y) < fountain.r + 80) return true;   // fountain
+            for (const pr of props) {                                        // lamps, benches, bushes
+                if (Math.abs(x - pr.x) < pr.w / 2 + spacing && y < pr.y + spacing && y > pr.y - 110) return true;
+            }
+            if (Math.abs(x - (player.x + player.w / 2)) < 90 && Math.abs(y - (player.y + player.h)) < 60) return true; // spawn
+            return false;
+        }
+
+        // A few bushes (solid, sorted with the player like the houses)
+        let bushTries = 0, bushCount = 0;
+        while (bushCount < 12 && bushTries < 2000) {
+            bushTries++;
+            const x = 60 + rnd() * (WORLD_WIDTH - 120);
+            const y = 330 + rnd() * (WORLD_HEIGHT - 400);
+            if (blocked(x, y, 60, 90)) continue;
+            const w = 80 + rnd() * 40;
+            props.push({ isBush: true, img: bushImg, x: x, y: y, w: w, hit: { x: x - w * 0.32, y: y - 12, w: w * 0.64, h: 12 } });
+            bushCount++;
+        }
+
+        // Keep the approach to every door clear of bushes
+        for (let i = props.length - 1; i >= 0; i--) {
+            const pr = props[i];
+            if (!pr.isBush) continue;
+            if (doors.some(d => {
+                const house = houses.find(h => h.id === d.houseId);
+                return Math.abs(pr.x - (d.x + d.w / 2)) < 120 && pr.y > house.y + house.h - 20 && pr.y < house.y + house.h + 320;
+            })) props.splice(i, 1);
+        }
+
+        // The shaking bush: a wild Charlie is hiding in the bush closest to this spot (near the start)
+        let charlieBush = null;
+        {
+            let best = 1e9;
+            for (const pr of props) {
+                if (!pr.isBush) continue;
+                const d = Math.hypot(pr.x - 1380, pr.y - 1180);
+                if (d < best) { best = d; charlieBush = pr; }
+            }
+            if (charlieBush) charlieBush.zone = { x: charlieBush.hit.x - 10, y: charlieBush.hit.y - 12, w: charlieBush.hit.w + 20, h: charlieBush.hit.h + 24 };
+        }
+
+        // Ground decorations (not solid): loose grass tufts, flower patches, and tufts along the path edges
+        const decor = [];
+        let dTries = 0;
+        while (decor.length < 44 && dTries < 4000) {
+            dTries++;
+            const x = 40 + rnd() * (WORLD_WIDTH - 80);
+            const y = 310 + rnd() * (WORLD_HEIGHT - 340);
+            if (blocked(x, y, 24, 20)) continue;
+            const isFlower = rnd() < 0.28;
+            decor.push({ img: isFlower ? flowersImg : tuftImg, x: x, y: y, w: isFlower ? 46 : 34 });
+        }
+        let eTries = 0, edgeCount = 0;
+        while (edgeCount < 36 && eTries < 4000) {
+            eTries++;
+            const p = paths[Math.floor(rnd() * paths.length)];
+            const vertical = p.h > p.w;
+            const side = rnd() < 0.5 ? -1 : 1;
+            const along = rnd();
+            const off = 4 + rnd() * 14;
+            let x, y;
+            if (vertical) { x = side < 0 ? p.x - off : p.x + p.w + off; y = p.y + along * p.h; }
+            else { y = side < 0 ? p.y - off + 6 : p.y + p.h + off + 6; x = p.x + along * p.w; }
+            if (nearPath(x, y, 2)) continue;           // don't put it on top of another path
+            if (blocked(x, y, -999, 14)) continue;      // (path padding disabled: we WANT it near the path)
+            decor.push({ img: tuftImg, x: x, y: y, w: 30 });
+            edgeCount++;
+        }
+        decor.sort((a, b) => a.y - b.y);
+
+        // ---------- Inside a house (full-screen interior) ----------
+        const interiorEl = document.getElementById('interior');
+        const interiorImgEl = document.getElementById('interior-img');
+        let inside = false;
+        let currentDoor = null;
+        let doorLock = false; // stops the door re-triggering until you walk away from it
+
+        // Preload every interior so the switch is instant
+        houses.forEach(h => { const i = new Image(); i.src = h.interior; });
+
+        // ---------- Witches Brewery potions ----------
+        const BASE_SPEED = 5.5;
+        const BOOST_SPEED = 13;
+        const BOOST_MS = 10000;
+        let speedBoostUntil = 0;
+        let dying = false;
+        let brewTimers = [];
+        const potionsEl = document.getElementById('potions');
+        const potionHintEl = document.getElementById('potion-hint');
+        const bubblePlayer = document.getElementById('bubble-player');
+        const bubbleWitch = document.getElementById('bubble-witch');
+        const bubbleKeeper = document.getElementById('bubble-keeper');
+        const toastEl = document.getElementById('toast');
+        const deathEl = document.getElementById('death');
+        const boostHud = document.getElementById('boost-hud');
+        const IMG_W = 1600, IMG_H = 1112; // size of the interior pictures
+
+        // Potion boxes as fractions of the picture (x, y, w, h)
+        const potionBoxes = {
+            'potion-red':   [0.465, 0.455, 0.145, 0.230],
+            'potion-green': [0.665, 0.442, 0.125, 0.240],
+            'potion-blue':  [0.840, 0.400, 0.095, 0.285]
+        };
+
+        // Where the picture sits on screen (it fills the screen like object-fit: cover, or contain on tall screens)
+        function interiorLayout() {
+            const vw = interiorEl.clientWidth, vh = interiorEl.clientHeight;
+            const contain = true;
+            const scale = contain ? Math.min(vw / IMG_W, vh / IMG_H) : Math.max(vw / IMG_W, vh / IMG_H);
+            const w = IMG_W * scale, h = IMG_H * scale;
+            return { x: (vw - w) / 2, y: (vh - h) / 2, w, h, vw, vh };
+        }
+        // ----- Family home -----
+        const famBoxes = {  // [x, y, w, h] as fractions of the interior picture
+            man:     [0.0047, 0.2201, 0.2699, 0.5201],
+            girl:    [0.2784, 0.2585, 0.2534, 0.4768],
+            boy:     [0.5492, 0.2567, 0.2089, 0.4689],
+            grandma: [0.7801, 0.3854, 0.2199, 0.3421]
+        };
+        const famEl = document.getElementById('family');
+        const famHintEl = document.getElementById('family-hint');
+        const talkEl = document.getElementById('talk');
+        const talkPersonEl = document.getElementById('talk-person');
+        const talkTextEl = document.getElementById('talk-text');
+        // Fill these in later: who they are + what they are to you
+        const famText = { man: '', girl: '', boy: '', grandma: '' };
+        let talking = false;
+        function layoutFamily() {
+            const L = interiorLayout();
+            for (const k in famBoxes) {
+                const b = famBoxes[k], el = document.getElementById('fam-' + k);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+            }
+        }
+        function startTalk(who) {
+            talking = true;
+            talkPersonEl.src = 'family_' + who + '.png';
+            talkTextEl.textContent = famText[who] || '';
+            famEl.style.visibility = 'hidden';   // everyone else steps out of the way
+            famHintEl.classList.remove('active');
+            talkEl.classList.add('show');
+        }
+        function endTalk() {
+            if (!talking) return;
+            talking = false;
+            talkEl.classList.remove('show');
+            famEl.style.visibility = '';
+            famHintEl.classList.add('active');
+        }
+        document.querySelectorAll('.fam').forEach(el =>
+            el.addEventListener('click', (e) => { e.stopPropagation(); startTalk(el.dataset.who); }));
+        talkEl.addEventListener('click', (e) => { e.stopPropagation(); endTalk(); });
+        window.addEventListener('resize', () => { if (inside) layoutFamily(); });
+
+        // ----- Junk N' Stuff -----
+        const prodBoxes = {  // [x, y, w, h] as fractions of the interior picture
+            guitar: [0.4220, 0.0323, 0.0915, 0.3171],
+            shoe:   [0.6407, 0.0506, 0.1381, 0.0884],
+            books:  [0.7847, 0.1750, 0.1038, 0.0738],
+            racket: [0.6775, 0.2701, 0.2136, 0.1067]
+        };
+        // Placeholder text - change these whenever you like
+        const prodInfo = {
+            guitar: { name: 'Acoustic Guitar', price: 'R 950.00',
+                desc: 'A well-loved six-string acoustic guitar that has seen more campfires than anyone can count. Slightly out of tune, slightly scratched, but it still sounds warm and a little bit magical. Comes with all its strings (mostly). Previous owner swears it only knows three songs.' },
+            shoe:   { name: 'Asics Running Shoe', price: 'R 450.00',
+                desc: 'A single grey Asics running shoe with an orange stripe, laces included. Barely worn, only run in during one very short and very regretful jog. Sold as a left foot only, so ideal for hopping, collecting, or looking confused at parties.' },
+            books:  { name: 'Book Stack (x3)', price: 'R 220.00',
+                desc: 'Three heavy-hitting reads sold as one tower: The Brothers Karamazov, Project Hail Mary and Crime and Punishment. Light bedtime reading it is not. Pages may contain tea stains, dog-ears and the occasional existential crisis.' },
+            racket: { name: 'Vintage Tennis Racket', price: 'R 180.00',
+                desc: 'A bright red tennis racket with strings that still have plenty of bounce. Great for tennis, swatting flies, or air-guitar solos. No ball included. We are not responsible for any lost matches, sore wrists or smashed windows.' }
+        };
+        const shopEl = document.getElementById('shop');
+        const shopHintEl = document.getElementById('shop-hint');
+        const shopTalkEl = document.getElementById('shop-talk');
+        let shopTalking = false;
+        function layoutShop() {
+            const L = interiorLayout();
+            for (const k in prodBoxes) {
+                const b = prodBoxes[k], el = document.getElementById('prod-' + k);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+            }
+        }
+        function placeKeeperBubble(fx = 0.385, fy = 0.40) {
+            const L = interiorLayout();
+            bubbleKeeper.style.left = (L.x + fx * L.w) + 'px';
+            bubbleKeeper.style.top = (L.y + fy * L.h) + 'px';
+        }
+        // Show a line of speech in a bubble for a while: steps = [[text, ms], ...]
+        function sayLines(el, steps, startDelay) {
+            let t = startDelay;
+            steps.forEach(([text, ms], i) => {
+                later(() => { el.textContent = text; el.classList.add('show'); }, t);
+                t += ms;
+                if (i === steps.length - 1) later(() => el.classList.remove('show'), t);
+            });
+        }
+        function startShop(what) {
+            const info = prodInfo[what];
+            shopTalking = true;
+            document.getElementById('shop-item').src = 'junk_' + what + '.png';
+            document.getElementById('r-name').textContent = info.name;
+            document.getElementById('r-price').textContent = info.price;
+            document.getElementById('r-desc').textContent = info.desc;
+            document.getElementById('r-total').textContent = info.price;
+            shopEl.style.visibility = 'hidden';
+            shopHintEl.classList.remove('active');
+            shopTalkEl.classList.add('show');
+        }
+        function endShop() {
+            if (!shopTalking) return;
+            shopTalking = false;
+            shopTalkEl.classList.remove('show');
+            shopEl.style.visibility = '';
+            shopHintEl.classList.add('active');
+        }
+        document.querySelectorAll('.prod').forEach(el =>
+            el.addEventListener('click', (e) => { e.stopPropagation(); startShop(el.dataset.what); }));
+        shopTalkEl.addEventListener('click', (e) => { e.stopPropagation(); endShop(); });
+        window.addEventListener('resize', () => { if (inside) layoutShop(); });
+
+        function layoutPotions() {
+            const L = interiorLayout();
+            for (const id in potionBoxes) {
+                const b = potionBoxes[id], el = document.getElementById(id);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+            }
+            // Witch's speech bubble sits on the counter under her, clamped so it stays on screen
+            bubbleWitch.style.left = Math.max(16, L.x + 0.07 * L.w) + 'px';
+            bubbleWitch.style.top = Math.min(L.y + 0.76 * L.h, L.vh - 130) + 'px';
+        }
+        window.addEventListener('resize', () => { if (inside) layoutPotions(); });
+
+        function later(fn, ms) { brewTimers.push(setTimeout(fn, ms)); }
+        function clearBrew() {
+            brewTimers.forEach(clearTimeout);
+            brewTimers = [];
+            bubblePlayer.classList.remove('show');
+            bubbleWitch.classList.remove('show');
+            bubbleKeeper.classList.remove('show');
+            toastEl.classList.remove('show');
+        }
+        function showToast(text, ms) {
+            toastEl.textContent = text;
+            toastEl.classList.add('show');
+            later(() => toastEl.classList.remove('show'), ms);
+        }
+
+        function drinkRed() {
+            speedBoostUntil = Date.now() + BOOST_MS;
+            clearBrew();
+            showToast('\u26A1 Speed boost! (10 seconds)', 3000);
+        }
+
+        function drinkGreen() {
+            if (dying) return;
+            dying = true;
+            clearBrew();
+            speedBoostUntil = 0;
+            deathEl.classList.add('show');
+            setTimeout(() => {
+                // Respawn at the fountain (just south of it)
+                inside = false;
+                interiorEl.classList.remove('open');
+                potionsEl.classList.remove('active');
+                potionHintEl.classList.remove('active');
+                player.x = fountain.x - player.w / 2;
+                player.y = fountain.y + 60;
+                doorLock = true;
+                deathEl.classList.remove('show');
+                dying = false;
+            }, 2800);
+        }
+
+        function drinkBlue() {
+            clearBrew();
+            bubblePlayer.textContent = 'This is just water';
+            bubblePlayer.classList.add('show');
+            later(() => bubblePlayer.classList.remove('show'), 2300);
+            later(() => {
+                bubbleWitch.textContent = 'Always stay hydrated';
+                bubbleWitch.classList.add('show');
+            }, 2600);
+            later(() => bubbleWitch.classList.remove('show'), 5200);
+        }
+
+        document.getElementById('potion-red').addEventListener('click', (e) => { e.stopPropagation(); if (!dying) drinkRed(); });
+        document.getElementById('potion-green').addEventListener('click', (e) => { e.stopPropagation(); drinkGreen(); });
+        document.getElementById('potion-blue').addEventListener('click', (e) => { e.stopPropagation(); if (!dying) drinkBlue(); });
+
+        // ----- Wild Charlie encounter -----
+        let bushLock = false;
+        let encounterOn = false, encounterReady = false, encTimer = null, encTyping = false, encPage = 0, encFull = '';
+        const encounterEl = document.getElementById('encounter');
+        const encounterFlash = document.getElementById('encounter-flash');
+        const charlieEl = document.getElementById('charlie');
+        const encTextEl = document.getElementById('encounter-text');
+        const encArrowEl = document.getElementById('encounter-arrow');
+        // Change these lines whenever you like (each entry = one text box page)
+        const encounterPages = [
+            'You have encountered a wild Charlie!',
+            'Charlie is a three-legged cat. He is missing a leg, but never his attitude.'
+        ];
+        function layoutCharlie() {
+            const vw = encounterEl.clientWidth, vh = encounterEl.clientHeight;
+            const IW = 2360, IH = 1640, sc = Math.min(vw / IW, vh / IH);
+            const w = IW * sc, h = IH * sc, x0 = (vw - w) / 2, y0 = (vh - h) / 2;
+            const ch = h * 0.52, cw = ch * 877 / 1143;
+            charlieEl.style.height = ch + 'px';
+            charlieEl.style.width = cw + 'px';
+            charlieEl.style.left = (x0 + w * 0.5 - cw / 2) + 'px';
+            charlieEl.style.top = (y0 + h * 0.675 - ch) + 'px';
+        }
+        function typePage(text) {
+            encFull = text; encTyping = true;
+            encArrowEl.style.display = 'none';
+            encTextEl.textContent = '';
+            let i = 0;
+            clearInterval(encTimer);
+            encTimer = setInterval(() => {
+                i++;
+                encTextEl.textContent = encFull.slice(0, i);
+                if (i >= encFull.length) { clearInterval(encTimer); encTyping = false; encArrowEl.style.display = 'block'; }
+            }, 38);
+        }
+        function startEncounter() {
+            inside = true; encounterOn = true; encounterReady = false; bushLock = true;
+            keys.up = keys.left = keys.down = keys.right = false;
+            player.isMoving = false;
+            encPage = 0;
+            encTextEl.textContent = '';
+            encArrowEl.style.display = 'none';
+            charlieEl.className = '';
+            encounterEl.classList.add('open');
+            layoutCharlie();
+            encounterFlash.classList.remove('blink'); void encounterFlash.offsetWidth; encounterFlash.classList.add('blink');
+            setTimeout(() => { if (!encounterOn) return; charlieEl.classList.add('in'); }, 650);
+            setTimeout(() => { if (!encounterOn) return; charlieEl.classList.add('idle'); encounterReady = true; typePage(encounterPages[0]); }, 1450);
+        }
+        function advanceEncounter() {
+            if (!encounterOn || !encounterReady) return;
+            if (encTyping) {                      // finish the line instantly
+                clearInterval(encTimer); encTyping = false;
+                encTextEl.textContent = encFull; encArrowEl.style.display = 'block';
+                return;
+            }
+            encPage++;
+            if (encPage >= encounterPages.length) endEncounter(); else typePage(encounterPages[encPage]);
+        }
+        function endEncounter() {
+            if (!encounterOn) return;
+            encounterOn = false; encounterReady = false;
+            clearInterval(encTimer);
+            encounterEl.classList.remove('open');
+            inside = false;
+            if (charlieBush) {   // step back out just below the bush
+                player.x = charlieBush.x - player.w / 2;
+                player.y = charlieBush.y + 40 - player.h;
+                bushLock = true;
+            }
+        }
+        encounterEl.addEventListener('click', advanceEncounter);
+        window.addEventListener('resize', () => { if (encounterOn) layoutCharlie(); });
+
+        function enterHouse(houseId) {
+            const house = houses.find(h => h.id === houseId);
+            if (!house) return;
+            inside = true;
+            currentDoor = doors.find(d => d.houseId === houseId);
+            keys.up = keys.left = keys.down = keys.right = false;
+            player.isMoving = false;
+            interiorImgEl.src = house.interior;
+            interiorImgEl.alt = house.name;
+            interiorEl.classList.add('open');
+            const isBrewery = house.id === 5;
+            potionsEl.classList.toggle('active', isBrewery);
+            potionHintEl.classList.toggle('active', isBrewery);
+            if (isBrewery) layoutPotions();
+            const isFamily = house.id === 3 || house.id === 4;
+            famEl.classList.toggle('active', isFamily);
+            famHintEl.classList.toggle('active', isFamily);
+            if (isFamily) layoutFamily();
+            const isShop = house.id === 1;
+            shopEl.classList.toggle('active', isShop);
+            shopHintEl.classList.toggle('active', isShop);
+            if (isShop) layoutShop();
+            // Greetings from the shopkeeper and the witch
+            clearBrew();
+            if (isShop) {
+                placeKeeperBubble();
+                sayLines(bubbleKeeper, [['Welcome to......', 1900], ['whatever, just be quick', 3800]], 500);
+            }
+            if (house.id === 2) {   // The Lab
+                placeKeeperBubble(0.355, 0.12);
+                sayLines(bubbleKeeper, [['HIIIIII stranger', 2000], ['feel free to use the computer!', 4000]], 500);
+            }
+            if (isBrewery) sayLines(bubbleWitch, [['Try my potions.....', 2100], ['....if you dare', 3800]], 500);
+        }
+
+        function exitHouse() {
+            if (!inside || dying) return;
+            inside = false;
+            clearBrew();
+            potionsEl.classList.remove('active');
+            potionHintEl.classList.remove('active');
+            endTalk();
+            endShop();
+            shopEl.classList.remove('active');
+            shopHintEl.classList.remove('active');
+            famEl.classList.remove('active');
+            famHintEl.classList.remove('active');
+            interiorEl.classList.remove('open');
+            // Put the player just outside the door
+            if (currentDoor) {
+                player.x = currentDoor.x + currentDoor.w / 2 - player.w / 2;
+                player.y = currentDoor.y + 30;
+                doorLock = true;
+            }
+        }
+        document.getElementById('interior-exit').addEventListener('click', exitHouse);
+        interiorEl.addEventListener('touchstart', (e) => { if (e.target === interiorEl || e.target === interiorImgEl) { /* tap anywhere also leaves */ exitHouse(); } }, { passive: true });
+
+        let activeMessage = "";
+
+        function checkRectCollision(r1, r2) {
+            return (
+                r1.x < r2.x + r2.w &&
+                r1.x + r1.w > r2.x &&
+                r1.y < r2.y + r2.h &&
+                r1.y + r1.h > r2.y
+            );
+        }
+
+        function checkCircleRectCollision(circle, rect) {
+            let testX = circle.x;
+            let testY = circle.y;
+            if (circle.x < rect.x) testX = rect.x;      
+            else if (circle.x > rect.x + rect.w) testX = rect.x + rect.w;   
+            if (circle.y < rect.y) testY = rect.y;      
+            else if (circle.y > rect.y + rect.h) testY = rect.y + rect.h;   
+
+            let distX = circle.x - testX;
+            let distY = circle.y - testY;
+            return Math.sqrt((distX*distX) + (distY*distY)) <= circle.r;
+        }
+
+        function isCollidingWithObstacles(testPlayerX, testPlayerY) {
+            const testRect = { x: testPlayerX, y: testPlayerY, w: player.w, h: player.h };
+            // Obstacles only care about the player's FEET (small box at the bottom of the sprite),
+            // so you can stand right in front of lamps, benches and houses
+            const feet = { x: testPlayerX + player.w / 2 - 22, y: testPlayerY + player.h - 18, w: 44, h: 18 };
+
+            // World boundaries
+            if (testRect.x < 0 || testRect.x + testRect.w > WORLD_WIDTH ||
+                testRect.y < 0 || testRect.y + testRect.h > WORLD_HEIGHT) {
+                return true;
+            }
+
+            // Houses
+            for (let house of houses) {
+                if (checkRectCollision(feet, house.hit)) return true;
+            }
+
+            // Lamp posts and benches
+            for (let pr of props) {
+                if (checkRectCollision(feet, pr.hit)) return true;
+            }
+
+            // Fountain
+            if (checkCircleRectCollision(fountain, feet)) return true;
+
+            return false;
+        }
+
+        let lastFrameT = performance.now();
+        function update() {
+            // Time-based movement: same speed whatever the frame rate (60fps = 1.0)
+            const nowT = performance.now();
+            const step = Math.min((nowT - lastFrameT) / 16.667, 3);
+            lastFrameT = nowT;
+            // Speed boost from the red potion (keeps counting down while you're indoors)
+            const boosted = Date.now() < speedBoostUntil;
+            player.speed = boosted ? BOOST_SPEED : BASE_SPEED;
+            boostHud.style.display = boosted ? 'block' : 'none';
+            if (boosted) boostHud.textContent = '\u26A1 Speed boost ' + Math.ceil((speedBoostUntil - Date.now()) / 1000) + 's';
+
+            if (inside) return; // game is paused while you're inside a house
+
+            let dx = 0;
+            let dy = 0;
+
+            const sp = player.speed * step;
+            if (keys.up) dy -= sp;
+            if (keys.down) dy += sp;
+            if (keys.left) dx -= sp;
+            if (keys.right) dx += sp;
+
+            if (dx !== 0 && dy !== 0) {
+                const length = Math.sqrt(dx * dx + dy * dy);
+                dx = (dx / length) * sp;
+                dy = (dy / length) * sp;
+            }
+
+            player.isMoving = (dx !== 0 || dy !== 0);
+
+            // Update facing direction based on horizontal movement
+            if (dx < 0) player.facingLeft = true;
+            if (dx > 0) player.facingLeft = false;
+
+            if (dx !== 0 && !isCollidingWithObstacles(player.x + dx, player.y)) player.x += dx;
+            if (dy !== 0 && !isCollidingWithObstacles(player.x, player.y + dy)) player.y += dy;
+
+            // Update Camera Position to follow player
+            camera.x = player.x + player.w / 2 - canvas.width / 2;
+            camera.y = player.y + player.h / 2 - canvas.height / 2;
+
+            // Clamp camera to world bounds
+            if (camera.x < 0) camera.x = 0;
+            if (camera.y < 0) camera.y = 0;
+            if (camera.x > WORLD_WIDTH - canvas.width) camera.x = WORLD_WIDTH - canvas.width;
+            if (camera.y > WORLD_HEIGHT - canvas.height) camera.y = WORLD_HEIGHT - canvas.height;
+
+            // Trigger Zones
+            let currentTriggerMessage = "";
+            const playerRect = { x: player.x, y: player.y, w: player.w, h: player.h };
+
+            if (checkRectCollision(playerRect, forest)) {
+                currentTriggerMessage = "You have entered the Ancient Forest! Area locked.";
+            }
+
+            // Doors: step into the zone in front of a door (with your feet) to go inside
+            const feetRect = { x: player.x + player.w / 2 - 22, y: player.y + player.h - 18, w: 44, h: 18 };
+            let onDoor = null;
+            for (let door of doors) {
+                if (checkRectCollision(feetRect, door)) onDoor = door;
+            }
+            if (!onDoor) doorLock = false;
+            if (onDoor && !doorLock) {
+                enterHouse(onDoor.houseId);
+            }
+            // The shaking bush
+            if (charlieBush) {
+                const onBush = checkRectCollision(feetRect, charlieBush.zone);
+                if (!onBush) bushLock = false;
+                if (onBush && !bushLock && !inside) startEncounter();
+            }
+
+            // UI Overlay Toggle
+            if (currentTriggerMessage !== activeMessage) {
+                activeMessage = currentTriggerMessage;
+                if (activeMessage !== "") {
+                    messageText.innerText = activeMessage;
+                    uiOverlay.classList.remove('opacity-0');
+                    uiOverlay.classList.add('opacity-100');
+                } else {
+                    uiOverlay.classList.remove('opacity-100');
+                    uiOverlay.classList.add('opacity-0');
+                }
+            }
+        }
+
+        function drawHouse(house) {
+            // Hand-drawn sprite: centred on the house, bottom sits just below the door line
+            if (house.img && house.img.complete && house.img.naturalHeight !== 0) {
+                const sw = house.spriteW;
+                const sh = sw * house.img.naturalHeight / house.img.naturalWidth;
+                const bottom = house.y + house.h + 10;
+                ctx.drawImage(house.img, house.x + house.w / 2 - sw / 2, bottom - sh, sw, sh);
+                return;
+            }
+            // Fallback: original placeholder drawing
+            ctx.fillStyle = house.color;
+            ctx.fillRect(house.x, house.y, house.w, house.h);
+            
+            // Roof
+            ctx.fillStyle = house.roof;
+            ctx.beginPath();
+            ctx.moveTo(house.x - 15, house.y + 20);
+            ctx.lineTo(house.x + house.w / 2, house.y - 40);
+            ctx.lineTo(house.x + house.w + 15, house.y + 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // Windows
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fillRect(house.x + 25, house.y + 40, 35, 35); 
+            ctx.fillRect(house.x + house.w - 60, house.y + 40, 35, 35); 
+            
+            ctx.fillStyle = '#bdc3c7';
+            ctx.fillRect(house.x + 40, house.y + 40, 5, 35);
+            ctx.fillRect(house.x + 25, house.y + 55, 35, 5);
+            ctx.fillRect(house.x + house.w - 45, house.y + 40, 5, 35);
+            ctx.fillRect(house.x + house.w - 60, house.y + 55, 35, 5);
+        }
+
+        function drawProp(pr) {
+            if (!(pr.img.complete && pr.img.naturalHeight !== 0)) return;
+            const h = pr.w * pr.img.naturalHeight / pr.img.naturalWidth;
+            let ox = 0;
+            if (pr === charlieBush) {   // rustle for a moment, rest for a moment (like Pokemon grass)
+                const t = (performance.now() % 2200) / 1000;
+                if (t < 0.9) ox = Math.sin(t * 38) * 3.2 * (1 - t / 0.9);
+            }
+            ctx.drawImage(pr.img, pr.x - pr.w / 2 + ox, pr.y - h, pr.w, h);
+        }
+
+        function drawPaths() {
+            // Dark outline, then the flagstone texture on top
+            ctx.fillStyle = '#2a2b1c';
+            paths.forEach(p => ctx.fillRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8));
+            ctx.fillStyle = pavementPattern || pathColor;
+            paths.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+        }
+
+        function drawDecor() {
+            decor.forEach(d => {
+                if (!(d.img.complete && d.img.naturalHeight !== 0)) return;
+                const h = d.w * d.img.naturalHeight / d.img.naturalWidth;
+                ctx.drawImage(d.img, d.x - d.w / 2, d.y - h, d.w, h);
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Apply Camera Translation
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+
+            // Draw Paths (Bottom Layer)
+            drawPaths();
+
+            // Draw Forest
+            ctx.fillStyle = forest.color;
+            ctx.fillRect(forest.x, forest.y, forest.w, forest.h);
+            
+            // Tree texture
+            ctx.fillStyle = '#1e4010';
+            for(let i = 0; i < WORLD_WIDTH; i += 80) {
+                ctx.beginPath(); ctx.arc(i + 40, 60, 45, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(i, 130, 40, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(i + 60, 190, 35, 0, Math.PI * 2); ctx.fill();
+            }
+
+            drawDecor();
+
+            // (Door trigger zones are invisible now - the house sprites have their own doors)
+
+            // Draw houses, lamps, benches and the player sorted by ground line,
+            // so the player walks behind things above him and in front of things below him
+            const drawables = [];
+            houses.forEach(h => drawables.push({ base: h.y + h.h + 10, draw: () => drawHouse(h) }));
+            props.forEach(pr => drawables.push({ base: pr.y, draw: () => drawProp(pr) }));
+            drawables.push({ base: fountain.y + 55, draw: drawFountain });
+            drawables.push({ base: player.y + player.h, draw: drawPlayer });
+            drawables.sort((a, b) => a.base - b.base);
+            drawables.forEach(d => d.draw());
+
+            // Restore canvas to screen coordinates
+            ctx.restore();
+        }
+
+        function drawFountain() {
+            // Hand-drawn fountain sprite (collision stays the circle in 'fountain')
+            if (fountainImg.complete && fountainImg.naturalHeight !== 0) {
+                const fw = 210;
+                const fh = fw * fountainImg.naturalHeight / fountainImg.naturalWidth;
+                ctx.drawImage(fountainImg, fountain.x - fw / 2, fountain.y + 55 - fh, fw, fh);
+                return;
+            }
+            // Fallback: original placeholder fountain
+            ctx.fillStyle = fountain.outline;
+            ctx.beginPath(); ctx.arc(fountain.x, fountain.y, fountain.r + 8, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = fountain.color;
+            ctx.beginPath(); ctx.arc(fountain.x, fountain.y, fountain.r, 0, Math.PI * 2); ctx.fill();
+        }
+
+        function drawPlayer() {
+            // Draw Player with Waddle Animation
+            ctx.save();
+            
+            // Translate context to the bottom-center of the player (the pivot point for feet)
+            ctx.translate(player.x + player.w / 2, player.y + player.h);
+            
+            // Flip the canvas horizontally if the player is facing left
+            if (player.facingLeft) {
+                ctx.scale(-1, 1);
+            }
+
+            if (player.isMoving) {
+                // South Park waddle: oscillate rotation using a sine wave based on time
+                const waddleAngle = Math.sin(Date.now() / 100) * 0.15; // 0.15 radians is ~8.5 degrees
+                ctx.rotate(waddleAngle);
+            }
+            
+            // Draw the character image if it has successfully loaded
+            if (playerImg.complete && playerImg.naturalHeight !== 0) {
+                // Offset drawing by -w/2 and -h so the pivot remains at the feet
+                ctx.drawImage(playerImg, -player.w / 2, -player.h, player.w, player.h);
+            } else {
+                // Fallback rendering in case the image is missing or still loading
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath(); ctx.ellipse(0, 0, player.w/1.4, 8, 0, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#e74c3c';
+                ctx.fillRect(-player.w / 2, -player.h, player.w, player.h);
+            }
+            
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function handleKey(e, isDown) {
+            if (!e.key) return; // Ensure key property exists
+            const k = e.key.toLowerCase();
+
+            // Wild Charlie encounter: Enter / Space / E / Z go to the next line, Esc skips out
+            if (encounterOn) {
+                if (isDown && (k === 'enter' || k === ' ' || k === 'e' || k === 'z')) { e.preventDefault(); advanceEncounter(); }
+                else if (isDown && k === 'escape') { e.preventDefault(); endEncounter(); }
+                return;
+            }
+
+            // While inside a house: Esc / Enter / Space / E leaves
+            if (inside) {
+                if (isDown && (k === 'escape' || k === 'enter' || k === ' ' || k === 'e')) {
+                    e.preventDefault();
+                    if (talking) endTalk(); else if (shopTalking) endShop(); else exitHouse();
+                }
+                return;
+            }
+            
+            // Track if it's a movement key to prevent default scrolling
+            let isMovementKey = false;
+
+            if (k === 'w' || k === 'arrowup') { keys.up = isDown; isMovementKey = true; }
+            if (k === 'a' || k === 'arrowleft') { keys.left = isDown; isMovementKey = true; }
+            if (k === 's' || k === 'arrowdown') { keys.down = isDown; isMovementKey = true; }
+            if (k === 'd' || k === 'arrowright') { keys.right = isDown; isMovementKey = true; }
+
+            if (isMovementKey && isDown) {
+                e.preventDefault(); // Prevents page scrolling when using arrow keys
+            }
+        }
+
+        // Attach to document for better focus capturing inside browser frames
+        document.addEventListener('keydown', (e) => handleKey(e, true));
+        document.addEventListener('keyup', (e) => handleKey(e, false));
+
+        const dBtns = document.querySelectorAll('.d-btn');
+        dBtns.forEach(btn => {
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const key = btn.getAttribute('data-key').toLowerCase();
+                if (key === 'arrowup') keys.up = true;
+                if (key === 'arrowleft') keys.left = true;
+                if (key === 'arrowdown') keys.down = true;
+                if (key === 'arrowright') keys.right = true;
+                btn.style.background = 'rgba(255,255,255,0.6)';
+            });
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const key = btn.getAttribute('data-key').toLowerCase();
+                if (key === 'arrowup') keys.up = false;
+                if (key === 'arrowleft') keys.left = false;
+                if (key === 'arrowdown') keys.down = false;
+                if (key === 'arrowright') keys.right = false;
+                btn.style.background = 'rgba(255,255,255,0.2)';
+            });
+        });
+
+        window.onload = () => {
+            gameLoop();
+        };
+    </script>
+</body>
+</html>
